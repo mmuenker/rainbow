@@ -5,9 +5,12 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -107,6 +110,8 @@ type Config struct {
 	InMemBlockCache int64
 	MaxMemory       uint64
 	MaxFD           int
+
+	HttpCidAllowlist []string
 
 	GatewayDomains           []string
 	SubdomainGatewayDomains  []string
@@ -527,6 +532,34 @@ func setupDenylists(cfg Config) ([]*nopfs.HTTPSubscriber, *nopfs.Blocker, error)
 	}
 
 	return denylists, blocker, nil
+}
+
+func setupHttpCidAllowlist(cfg Config) (map[string]bool, error) {
+
+	var allowlist = make(map[string]bool)
+
+	for _, url := range cfg.HttpCidAllowlist {
+		resp, err := http.Get(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download allowlist file: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			cidStr := strings.TrimSpace(line)
+			if len(cidStr) > 0 {
+				allowlist[cidStr] = true
+			}
+		}
+	}
+
+	return allowlist, nil
 }
 
 func setupNamesys(cfg Config, vs routing.ValueStore, blocker *nopfs.Blocker, dnslinkResolver madns.BasicResolver) (namesys.NameSystem, error) {

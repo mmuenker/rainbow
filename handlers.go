@@ -228,7 +228,7 @@ func withRequestLogger(next http.Handler) http.Handler {
 	})
 }
 
-func setupGatewayHandler(cfg Config, nd *Node) (http.Handler, error) {
+func setupGatewayHandler(cfg Config, nd *Node, allowlist map[string]bool) (http.Handler, error) {
 	var (
 		backend gateway.IPFSBackend
 		err     error
@@ -318,7 +318,10 @@ func setupGatewayHandler(cfg Config, nd *Node) (http.Handler, error) {
 		PublicGateways:        publicGateways,
 		NoDNSLink:             noDNSLink,
 	}
+
 	gwHandler := gateway.NewHandler(gwConf, backend)
+
+	gwHandler = withCIDAllowlist(gwHandler, allowlist)
 
 	ipfsHandler := withHTTPMetrics(gwHandler, "ipfs", cfg.disableMetrics)
 	ipnsHandler := withHTTPMetrics(gwHandler, "ipns", cfg.disableMetrics)
@@ -382,6 +385,33 @@ func withTracingAndDebug(next http.Handler, authToken string) http.Handler {
 		}
 
 		next.ServeHTTP(writer, request)
+	})
+}
+
+func extractCID(urlPath string) string {
+	parts := strings.Split(urlPath, "/")
+	if len(parts) < 3 || (parts[1] != "ipfs" && parts[1] != "ipns") {
+		return ""
+	}
+	return parts[2]
+}
+
+func withCIDAllowlist(handler http.Handler, allowlist map[string]bool) http.Handler {
+	if len(allowlist) == 0 {
+		return handler
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cid := extractCID(r.URL.Path)
+		if cid == "" {
+			http.Error(w, "Unable to extract CID", 500)
+			return
+		}
+		if !allowlist[cid] {
+			http.Error(w, cid+" Not in allowlist", 403) // Forbidden
+			return
+		}
+		handler.ServeHTTP(w, r)
 	})
 }
 

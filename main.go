@@ -201,6 +201,12 @@ Generate an identity seed and launch a gateway:
 			Usage:   "Maximum number of file descriptors used by libp2p node. Defaults to 50% of the process' limit",
 		},
 		&cli.StringSliceFlag{
+			Name:    "http-cid-allowlist",
+			Value:   cli.NewStringSlice(),
+			EnvVars: []string{"RAINBOW_HTTP_CID_ALLOWLIST"},
+			Usage:   "CID Allowlist HTTP urls (comma-separated).",
+		},
+		&cli.StringSliceFlag{
 			Name:    "http-routers",
 			Value:   cli.NewStringSlice(cidContactEndpoint),
 			EnvVars: []string{"RAINBOW_HTTP_ROUTERS"},
@@ -538,6 +544,7 @@ share the same seed as long as the indexes are different.
 			ConnMgrGrace:               cctx.Duration("libp2p-connmgr-grace"),
 			MaxMemory:                  cctx.Uint64("libp2p-max-memory"),
 			MaxFD:                      cctx.Int("libp2p-max-fd"),
+			HttpCidAllowlist:           cctx.StringSlice("http-cid-allowlist"),
 			InMemBlockCache:            cctx.Int64("inmem-block-cache"),
 			RoutingV1Endpoints:         cctx.StringSlice("http-routers"),
 			RoutingV1FilterProtocols:   cctx.StringSlice("http-routers-filter-protocols"),
@@ -595,7 +602,13 @@ share the same seed as long as the indexes are different.
 		gatewayListen := cctx.String("gateway-listen-address")
 		ctlListen := cctx.String("ctl-listen-address")
 
-		handler, err := setupGatewayHandler(cfg, gnd)
+		// Load allowlist from provided urls
+		allowlist, err := setupHttpCidAllowlist(cfg)
+		if err != nil {
+			return err
+		}
+
+		handler, err := setupGatewayHandler(cfg, gnd, allowlist)
 		if err != nil {
 			return err
 		}
